@@ -1,0 +1,5 @@
+c Example Coloring format file
+c
+p edge 3 2
+e 1 2
+e 2 3
