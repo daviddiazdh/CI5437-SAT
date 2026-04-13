@@ -147,7 +147,7 @@ int main(int argc, char* argv[]) {
     search_output result = search(1, nodes_size, nodes_size, {}, edges, nodes);
 
     int k = result.cromatic_number;
-    cout << "Numero Cromatico: " << k << endl;
+    cout << k << endl;
 
     // Escritura de colores
     ofstream out(output_str);
@@ -171,10 +171,8 @@ int main(int argc, char* argv[]) {
     // Impresión del tiempo de duración del algoritmo
     int ms = chrono::duration_cast<chrono::milliseconds>(end - start).count();
     double total_s = static_cast<double>(ms) / 1000.0;
-    int m = total_s / 60;
-    double s_restantes = total_s - (m * 60);
-    double trunc_s = floor(s_restantes * 1000.0) / 1000.0;
-    cout << m << "m" << trunc_s << "s" << endl;
+    double trunc_s = floor(total_s * 1000.0) / 1000.0;
+    cout <<  trunc_s << "s" << endl;
 
     return 0;
 }
