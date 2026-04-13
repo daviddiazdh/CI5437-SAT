@@ -3,6 +3,7 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <unordered_map>
 #include <cmath>
 #include <fstream>
 #include <string>
@@ -22,7 +23,19 @@ enum PURE_STATE{
     IMPURE
 };
 
-SAT_STATE clause_eval(set<int>& clause, map<int, bool>& model, vector<PURE_STATE>& pure_symbols, int& symbol_unit_clause){
+struct VARIABLE_STATE{
+    PURE_STATE ps;
+    vector<int> pos_clauses;
+    vector<int> neg_clauses;
+};
+
+enum MODEL_STATE{ 
+    NIL, 
+    T,
+    F
+};
+
+SAT_STATE clause_eval(set<int>& clause, vector<MODEL_STATE>& model, vector<PURE_STATE>& pure_symbols, int& symbol_unit_clause){
     SAT_STATE value = NDET;
     bool all_symbols_in_model = true;
 
@@ -32,19 +45,25 @@ SAT_STATE clause_eval(set<int>& clause, map<int, bool>& model, vector<PURE_STATE
     bool unit_clause = true;
     // -------------------------
     
-    for(int symbol : clause){
-        auto it = model.find(abs(symbol));
-        if(it != model.end()){
-            bool symbol_value = model[abs(symbol)];
-            if((symbol > 0 && symbol_value) || (symbol < 0 && !symbol_value)){
+    for(const int & symbol : clause){
+        
+        MODEL_STATE symbol_state = model[abs(symbol)];
+        
+        if(symbol_state != NIL){
+            if((symbol > 0 && symbol_state == T) || (symbol < 0 && symbol_state == F)){
                 value = SAT;
+                return value;
             }
         } else {
             all_symbols_in_model = false;
         }
+    }
 
+    for(const int& symbol : clause){
+        MODEL_STATE symbol_state = model[abs(symbol)];
+        
         // Verificación del caso de símbolos puros
-        if(it == model.end()){
+        if(symbol_state == NIL){
             PURE_STATE state = pure_symbols[abs(symbol) - 1];
             if(state == UNSET && symbol > 0){
                 pure_symbols[abs(symbol) - 1] = POS;
@@ -55,11 +74,9 @@ SAT_STATE clause_eval(set<int>& clause, map<int, bool>& model, vector<PURE_STATE
             }
         }
 
-
         // Verificación de claúsula unitaria
-        if(it != model.end()){
-            bool symbol_value = model[abs(symbol)];
-            if((symbol > 0 && symbol_value) || (symbol < 0 && !symbol_value)){
+        if(symbol_state != NIL){
+            if((symbol > 0 && symbol_state == T) || (symbol < 0 && symbol_state == F)){
                 unit_clause = false;
             }
         } else {
@@ -72,35 +89,28 @@ SAT_STATE clause_eval(set<int>& clause, map<int, bool>& model, vector<PURE_STATE
 
     } 
 
-    if(unit_clause){
+    if(unit_clause && symbols_outside_model == 1){
         symbol_unit_clause = candidate_unit_clause;
     }
-
-    if(value == SAT) return value;
 
     if(all_symbols_in_model) return NSAT;
     else return NDET;
 
 }
 
-bool dpll(set<set<int>>& clauses, set<int> symbols, map<int, bool> model, int &n){
-
-    // cout << "---------------------------------------------------------------------" << endl;
+bool dpll(set<set<int>>& clauses, vector<bool>& symbols, vector<MODEL_STATE>& model, int &n){
 
     SAT_STATE short_circuit = SAT;
     vector<PURE_STATE> pure_symbols(n, UNSET);
 
-    int symbol_unit_clause = 0;
     vector<int> unit_clauses_symbols;
 
     for(set<int> clause : clauses){
+        int symbol_unit_clause = 0;
         SAT_STATE eval = clause_eval(clause, model, pure_symbols, symbol_unit_clause);
         if(eval == NSAT){
-            // cout << "No es satisfacible" << endl;
             return false;
-        }
-        else if(eval == NDET){
-            // cout << "Es no determinada" << endl;
+        } else if(eval == NDET){
             short_circuit = NDET;
         }
 
@@ -110,63 +120,58 @@ bool dpll(set<set<int>>& clauses, set<int> symbols, map<int, bool> model, int &n
     }
     
     if(short_circuit == SAT){
-        // cout << "Es satisfacible" << endl;
         return true;
     }
 
     int index = 1;
     for(PURE_STATE ps : pure_symbols){
         if(ps == POS){
-            model.insert({index, true});
-            symbols.erase(index);
-            // cout << "Es puro: " << index << " mandando true" << endl;
+            model[index] = T;
+            symbols[index] = false;
             return dpll(clauses, symbols, model, n);
         } else if(ps == NEG){
-            model.insert({index, false});
-            symbols.erase(index);
-            // cout << "Es puro: " << index << " mandando false" << endl;
+            model[index] = F;
+            symbols[index] = false;
             return dpll(clauses, symbols, model, n);
         }
         index++;
     }
 
-
     if(unit_clauses_symbols.size() != 0){
         int unit_clause_symbol = unit_clauses_symbols[0];
-        if(unit_clause_symbol > 0){
-            model.insert({unit_clause_symbol, true});
-            symbols.erase(unit_clause_symbol);
-            // cout << "Es unitario: " << unit_clause_symbol << " mandando true" << endl;
+        if(unit_clause_symbol >= 0){
+            model[unit_clause_symbol] = T;
+            symbols[unit_clause_symbol] = false;
             return dpll(clauses, symbols, model, n);
         } else{
-            model.insert({-1 * unit_clause_symbol, false});
-            symbols.erase(-1 * unit_clause_symbol);
-            // cout << "Es unitario: " << -1 * unit_clause_symbol << " mandando false" << endl;
+            model[-1 * unit_clause_symbol] = F;
+            symbols[-1 * unit_clause_symbol] = false;
             return dpll(clauses, symbols, model, n);
         }
     }
 
-    if((!symbols.empty())){
-        
-        int first = *symbols.begin();
-        // cout << "Este es first: " << first << " mandando true" << endl;
-        symbols.erase(first);
-        model.insert({first, true});
-        bool left_expr = dpll(clauses, symbols, model, n);
-        model[first] = false;
-        if(left_expr) return true;
-        // cout << "Este es first: " << first << " mandando false" << endl;
-        bool right_expr = dpll(clauses, symbols, model, n);
-        return left_expr || right_expr;
-    } else {
-        return false;
+    int first = 0;
+    while(first < symbols.size()){
+        if(first != 0 && symbols[first]){
+            break;
+        }
+        first++;
     }
-
+    symbols[first] = false;
     
+    model[first] = T;
+
+    vector<MODEL_STATE> left_model = model;
+    vector<bool> left_symbols = symbols;
+    bool left_expr = dpll(clauses, left_symbols, left_model, n);
+    
+    if(left_expr) return true;
+    model[first] = F;
+    return dpll(clauses, symbols, model, n);
 
 }
 
-bool parse_entry(set<set<int>>& clauses, set<int>& symbols, int& n, string file_str){
+bool parse_entry(set<set<int>>& clauses, int& n, string file_str){
 
     ifstream file(file_str);
 
@@ -179,6 +184,7 @@ bool parse_entry(set<set<int>>& clauses, set<int>& symbols, int& n, string file_
     string word;
     set<int> partial_clause;
 
+    int index = 0;
     while(file >> word){
         if(word == "c"){
             // No leer comentario
@@ -204,7 +210,6 @@ bool parse_entry(set<set<int>>& clauses, set<int>& symbols, int& n, string file_
 
             try{
                 n = stoi(variables_str);
-                // cout << "n: " << n << endl;
             }catch (const invalid_argument& e) {
                 cerr << "Error: Variables no es un número válido." << endl;
                 return false;
@@ -221,7 +226,6 @@ bool parse_entry(set<set<int>>& clauses, set<int>& symbols, int& n, string file_
 
             try{
                 int clauses_amount = stoi(clauses_str);
-                // cout << "clauses_amount: " << clauses_amount << endl;
             }catch (const invalid_argument& e) {
                 cerr << "Error: Clauses no es un número válido." << endl;
                 return false;
@@ -229,7 +233,8 @@ bool parse_entry(set<set<int>>& clauses, set<int>& symbols, int& n, string file_
                 cerr << "Error: Clauses es demasiado grande para un int." << endl;
                 return false;
             }
-            
+        } else if(word == "%"){
+            break;
         } else {
             try{
                 int symbol = stoi(word);
@@ -239,7 +244,6 @@ bool parse_entry(set<set<int>>& clauses, set<int>& symbols, int& n, string file_
                     partial_clause.clear();
                 } else {
                     partial_clause.insert(symbol);
-                    symbols.insert(abs(symbol));
                 }
 
             }catch (const invalid_argument& e) {
@@ -261,6 +265,7 @@ bool parse_entry(set<set<int>>& clauses, set<int>& symbols, int& n, string file_
 
 }
 
+
 int main(int argc, char* argv[]){
 
     if(argc != 2){
@@ -270,35 +275,21 @@ int main(int argc, char* argv[]){
 
     string cnf_file = argv[1];
 
-    set<set<int>> clauses;    
-    set<int> symbols;
+    set<set<int>> clauses;  
+    // unordered_map<int, set<int>> clausess;
     int n;
 
-    if(!parse_entry(clauses, symbols, n, cnf_file)){
+    if(!parse_entry(clauses, n, cnf_file)){
         return 1;
     }
-    
-    // cout << "Símbolos: " << endl;
-    // for(int s : symbols){
-    //     cout << s << ", ";
-    // }
-    // cout << endl;
 
-    // cout << "Cláusulas: " << endl;
-    // for(set<int> clause : clauses){
-        
-    //     for(int s : clause){
-    //         cout << s << ", ";
-    //     }
-    //     cout << endl;
-    // }
+    vector<MODEL_STATE> model(n + 1, NIL);
+    vector<bool> symbols(n + 1, true);
 
-    bool satisfiable = dpll(clauses, symbols, {}, n); 
+    bool satisfiable = dpll(clauses, symbols, model, n);
 
     if(satisfiable) cout << "SATISFIABLE" << endl;
     else cout << "UNSATISFIABLE" << endl;
 
+    return 0;
 }
-
-
-// clauses = {{1,-2},{3,2},{1}}

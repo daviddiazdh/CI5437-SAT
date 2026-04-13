@@ -33,17 +33,21 @@ SAT_STATE clause_eval(set<int>& clause, map<int, bool>& model, vector<PURE_STATE
     bool unit_clause = true;
     // -------------------------
     
-    for(int symbol : clause){
+    for(const int & symbol : clause){
         auto it = model.find(abs(symbol));
         if(it != model.end()){
             bool symbol_value = model[abs(symbol)];
             if((symbol > 0 && symbol_value) || (symbol < 0 && !symbol_value)){
                 value = SAT;
+                return value;
             }
         } else {
             all_symbols_in_model = false;
         }
+    }
 
+    for(const int& symbol : clause){
+        auto it = model.find(abs(symbol));
         // Verificación del caso de símbolos puros
         if(it == model.end()){
             PURE_STATE state = pure_symbols[abs(symbol) - 1];
@@ -55,7 +59,6 @@ SAT_STATE clause_eval(set<int>& clause, map<int, bool>& model, vector<PURE_STATE
                 pure_symbols[abs(symbol) - 1] = IMPURE;
             }
         }
-
 
         // Verificación de claúsula unitaria
         if(it != model.end()){
@@ -73,11 +76,9 @@ SAT_STATE clause_eval(set<int>& clause, map<int, bool>& model, vector<PURE_STATE
 
     } 
 
-    if(unit_clause){
+    if(unit_clause && symbols_outside_model == 1){
         symbol_unit_clause = candidate_unit_clause;
     }
-
-    if(value == SAT) return value;
 
     if(all_symbols_in_model) return NSAT;
     else return NDET;
@@ -90,8 +91,6 @@ struct dpll_output{
 };
 
 dpll_output dpll(set<set<int>>& clauses, set<int> symbols, map<int, bool> model, int &n){
-
-    // cout << "---------------------------------------------------------------------" << endl;
 
     SAT_STATE short_circuit = SAT;
     vector<PURE_STATE> pure_symbols(n, UNSET);
@@ -166,7 +165,7 @@ dpll_output dpll(set<set<int>>& clauses, set<int> symbols, map<int, bool> model,
         dpll_output right_dpll_output = dpll(clauses, symbols, model, n);
         bool right_expr = right_dpll_output.satisfiable;
 
-        return {left_expr || right_expr, right_dpll_output.model};
+        return {right_expr, right_dpll_output.model};
     } else {
         return {false, {}};
     }
