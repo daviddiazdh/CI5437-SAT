@@ -46,7 +46,9 @@ void coloring_to_sat(vector<edge>& edges, set<int>& nodes, int k, vector<vector<
     // - Cada nodo debe tener al menos un color
     for (int node : nodes) {
         vector<int> clause;
-        for (int c = 1; c <= k; ++c) clause.push_back((node - 1) * k + c);
+        for (int c = 1; c <= k; ++c){
+            clause.push_back((node - 1) * k + c);
+        }
         clauses.push_back(clause);
     }
 

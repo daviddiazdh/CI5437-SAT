@@ -4,9 +4,6 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <fstream>
-#include <string>
-#include <sstream>
 #include <cmath>
 
 using namespace std;
@@ -39,7 +36,7 @@ struct SolverState {
         current_model.assign(num_vars + 1, VAL_FREE);
         unassigned_in_clause.assign(clauses.size(), 0);
         satisfied_in_clause.assign(clauses.size(), 0);
-
+        
         // Inicialización de cláusulas no asignadas (todas) y de cláusulas donde los 
         // símbolos aparecen con signo positivo y negativo (esto facilita la detección de 
         // símbolos puros en la recursión de DPLL)
@@ -81,19 +78,19 @@ void undo_assignments(SolverState& s, const vector<int>& history) {
     for (int i = (int)history.size() - 1; i >= 0; --i) {
         int v = history[i];
         int val = s.current_model[v];
-        
+
         // Obtención de cláusulas satisfacibles y no satisfacibles por la variable dada
-        const auto& satisfied_list = (val == VAL_TRUE) ? s.pos_map[v] : s.neg_map[v];
-        const auto& shortened_list = (val == VAL_TRUE) ? s.neg_map[v] : s.pos_map[v];
+        const auto& t_occs = (val == VAL_TRUE) ? s.pos_map[v] : s.neg_map[v];
+        const auto& f_occs = (val == VAL_TRUE) ? s.neg_map[v] : s.pos_map[v];
 
         // Rollback en las cláusulas satisfechas
-        for (int c_idx : satisfied_list) {
-            s.satisfied_in_clause[c_idx]--;
-            s.unassigned_in_clause[c_idx]++;
+        for (int c : t_occs) {
+            s.satisfied_in_clause[c]--;
+            s.unassigned_in_clause[c]++;
         }
         // Rollback en las cláusulas no satisfechas
-        for (int c_idx : shortened_list) {
-            s.unassigned_in_clause[c_idx]++;
+        for (int c : f_occs) {
+            s.unassigned_in_clause[c]++;
         }
         // Limpiar el valor de la variable en el modelo
         s.current_model[v] = VAL_FREE;
@@ -142,24 +139,26 @@ bool unit_clauses_propagation(SolverState& s, int start_var, int start_val, vect
         history.push_back(v);
 
         // Se obtienen la lista de cláusulas que satifacerá este cambio y las que no.
-        const auto& sat_list = (val == VAL_TRUE) ? s.pos_map[v] : s.neg_map[v];
-        const auto& fail_list = (val == VAL_TRUE) ? s.neg_map[v] : s.pos_map[v];
+        const auto& t_occs = (val == VAL_TRUE) ? s.pos_map[v] : s.neg_map[v];
+        const auto& f_occs = (val == VAL_TRUE) ? s.neg_map[v] : s.pos_map[v];
 
         // Para toda cláusula satisfacible se aumenta el contador de variables que la satisfacen
-        // y se disminuye el contador de variables no asignadas en la cláusula 
-        for (int c : sat_list) {
+        // y se disminuye el contador de variables no asignadas en la cláusula
+        for (int c : t_occs) {
             s.satisfied_in_clause[c]++;
             s.unassigned_in_clause[c]--;
         }
 
-        for (int c : fail_list) {
+        
+        bool conflict_found = false;
+        for (int c : f_occs) {
             s.unassigned_in_clause[c]--;
             // Caso en el que la cláusula que ninguna variable satisface la cláusula
             if (s.satisfied_in_clause[c] == 0) {
                 // Si la cláusula ya no tiene más variables a asignar, entonces no hay variable que la satisfaga
-                if (s.unassigned_in_clause[c] == 0) return false;
-                // Si la cláusula tiene una sola por asignar, entonces es unitaria
-                if (s.unassigned_in_clause[c] == 1) {
+                if (s.unassigned_in_clause[c] == 0) {
+                    conflict_found = true;
+                } else if (s.unassigned_in_clause[c] == 1) {
                     // Encontrar el literal que queda para la siguiente propagación
                     for (int l : s.clauses[c]) {
                         if (s.current_model[abs(l)] == VAL_FREE) {
@@ -171,10 +170,10 @@ bool unit_clauses_propagation(SolverState& s, int start_var, int start_val, vect
                 }
             }
         }
+        if (conflict_found) return false;
     }
     return true;
 }
-
 
 /**
  *  @brief  Función principal DPLL que maneja el backtracking con detección de símbolos puros y
@@ -200,52 +199,60 @@ bool unit_clauses_propagation(SolverState& s, int start_var, int start_val, vect
 bool DPLL(SolverState& s) {
     vector<int> level_history;
 
-    // Búsqueda de símbolos puros
-    bool changed;
+    bool pure_found;
     do {
-        changed = false;
-        for (int v = 1; v <= s.num_vars; ++v) {
-            if (s.current_model[v] != VAL_FREE) continue;
+        pure_found = false;
+        for (int i = 1; i <= s.num_vars; ++i) {
+            if (s.current_model[i] != VAL_FREE) continue;
 
-            bool pos = false, neg = false;
-            for (int c : s.pos_map[v]) if (s.satisfied_in_clause[c] == 0) { pos = true; break; }
-            for (int c : s.neg_map[v]) if (s.satisfied_in_clause[c] == 0) { neg = true; break; }
+            bool appears_pos = false;
+            bool appears_neg = false;
 
-            if (pos != neg) { // Si solo aparece de una forma (o en ninguna cláusula activa)
-                int target_val = pos ? VAL_TRUE : VAL_FALSE;
-                if (!unit_clauses_propagation(s, v, target_val, level_history)) {
+            for (int c : s.pos_map[i]) {
+                if (s.satisfied_in_clause[c] == 0) { appears_pos = true; break; }
+            }
+            for (int c : s.neg_map[i]) {
+                if (s.satisfied_in_clause[c] == 0) { appears_neg = true; break; }
+            }
+
+            if (appears_pos && !appears_neg) {
+                if (!unit_clauses_propagation(s, i, VAL_TRUE, level_history)) {
                     undo_assignments(s, level_history);
                     return false;
                 }
-                changed = true;
+                pure_found = true;
+            } else if (!appears_pos && appears_neg) {
+                if (!unit_clauses_propagation(s, i, VAL_FALSE, level_history)) {
+                    undo_assignments(s, level_history);
+                    return false;
+                }
+                pure_found = true;
             }
         }
-    } while (changed);
+    } while (pure_found);
 
     // Escoger la próxima variable para el backtracking
     int next_v = 0;
-    for (int v = 1; v <= s.num_vars; ++v) {
-        if (s.current_model[v] == VAL_FREE) { next_v = v; break; }
+    for (int i = 1; i <= s.num_vars; ++i) {
+        if (s.current_model[i] == VAL_FREE) { next_v = i; break; }
     }
 
     // Caso base: No quedan más variables y no se halló inconsistencias
-    if (next_v == 0){
-        return true;
-    }
+    if (next_v == 0) return true;
 
     // Sección de backtracking con true
-    vector<int> branch_history;
-    if (unit_clauses_propagation(s, next_v, VAL_TRUE, branch_history)) {
+    vector<int> history_true;
+    if (unit_clauses_propagation(s, next_v, VAL_TRUE, history_true)) {
         if (DPLL(s)) return true;
     }
-    undo_assignments(s, branch_history);
-    branch_history.clear();
+    undo_assignments(s, history_true);
 
     // Sección de backtracking con false
-    if (unit_clauses_propagation(s, next_v, VAL_FALSE, branch_history)) {
+    vector<int> history_false;
+    if (unit_clauses_propagation(s, next_v, VAL_FALSE, history_false)) {
         if (DPLL(s)) return true;
     }
-    undo_assignments(s, branch_history);
+    undo_assignments(s, history_false);
 
     // Limpiar símbolos puros de este nivel antes de subir
     undo_assignments(s, level_history);
